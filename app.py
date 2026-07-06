@@ -7,7 +7,7 @@ import io
 # ==========================================
 st.set_page_config(
     page_title="올리브영 수주업로드 자동 입력 시스템", 
-    page_icon="https://raw.githubusercontent.com/paak1010/FIFO/main/logo.png",
+    page_icon="https://raw.githubusercontent.com/paak1010/mentholatum_oliveyoung/main/logo.png",
     layout="wide"
 )
 
