@@ -124,9 +124,10 @@ if uploaded_file:
         # ==========================================
         today = pd.Timestamp.today().normalize()
         cutoff_date = today + pd.Timedelta(days=548)
-        idx_short_shelf_life = (df_inv['유효일자_보존'] <= cutoff_date)
         
-        df_inv_valid = df_inv[~(idx_oc2 | idx_short_shelf_life)].copy()
+        # 🚨 수정된 부분: idx_oc2 관련 로직 제거
+        idx_short_shelf_life = (df_inv['유효일자_보존'] <= cutoff_date)
+        df_inv_valid = df_inv[~idx_short_shelf_life].copy()
 
         # [재고 그룹핑]
         df_inv_valid['화주LOT'] = df_inv_valid['화주LOT'].astype(str)
