@@ -11,9 +11,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# ==========================================
-# 2. 커스텀 CSS (사이드바 흰색 & 기본 메뉴 숨기기)
-# ==========================================
 custom_css = """
 <style>
 [data-testid="stHeader"] { visibility: hidden; }
@@ -23,29 +20,20 @@ footer { visibility: hidden; }
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# ==========================================
-# 🎨 사이드바 디자인
-# ==========================================
 with st.sidebar:
     st.image("https://static.wikia.nocookie.net/mycompanies/images/d/de/Fe328a0f-a347-42a0-bd70-254853f35374.jpg/revision/latest?cb=20191117172510", use_container_width=True)
     st.markdown("---")
     st.header("⚙️ 작업 설정")
     uploaded_file = st.file_uploader("올리브영 발주 엑셀 업로드", type=['xlsx'])
     st.markdown("---")
-    
     apply_shelf_life = st.checkbox("✔️ 잔여 유효일자 548일 이하 제외 적용", value=True)
-    
     st.caption("💡 자동 부분 할당 및 재고 차감 적용")
     st.caption("Developed by Jay")
 
-# ==========================================
-# 메인 화면 디자인
-# ==========================================
 st.title("올리브영 수주업로드 자동 입력 시스템")
 st.markdown("Mentholatum : Moving The Heart")
 
 def to_safe_float(series):
-    # 숫자와 소수점만 남기고 강제 변환
     cleaned = series.astype(str).str.replace(r'[^0-9.]', '', regex=True)
     return pd.to_numeric(cleaned, errors='coerce').fillna(0)
 
@@ -57,7 +45,6 @@ if uploaded_file:
         df_order = df_order_raw.copy()
         df_inv = df_inv_raw.copy()
 
-        # [재고 시트] 열 이름 변경
         rename_dict = {}
         for col in df_inv.columns:
             col_str = str(col).replace(" ", "").upper()
@@ -82,10 +69,7 @@ if uploaded_file:
             df_order[col] = ""
             df_order[col] = df_order[col].astype(object)
 
-        # ==========================================
-        # 🔥 [핵심 방어 코드] 숨겨진 공백, 특수문자, 줄바꿈 완전 제거
-        # 영어 알파벳과 숫자만 100% 깔끔하게 남깁니다.
-        # ==========================================
+        # 무적의 글자 정제 (특수문자, 띄어쓰기 완전 제거)
         df_order['MECODE'] = df_order['MECODE'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
         df_inv['상품'] = df_inv['상품'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
         
@@ -96,7 +80,6 @@ if uploaded_file:
         df_inv['유효일자_보존'] = df_inv['유효일자_DT'].fillna(pd.Timestamp('2099-12-31'))
         df_inv['유효일자_STR'] = df_inv['유효일자_DT'].dt.strftime('%Y-%m-%d').fillna('')
 
-        # [박스 입수량 계산]
         box_col_candidates = [col for col in df_inv.columns if 'BOX' in str(col).upper() or '입수량' in str(col)]
         box_col_name = box_col_candidates[0] if box_col_candidates else None
         product_box_unit = {}
@@ -114,6 +97,27 @@ if uploaded_file:
             df_inv_valid = df_inv[~idx_short_shelf_life].copy()
         else:
             df_inv_valid = df_inv.copy()
+
+        # ==========================================
+        # 🕵️ 실시간 디버깅 안내판 (화면에 띄워줌)
+        # ==========================================
+        st.warning("🕵️ **[시스템 체크] ME90621OC2 데이터 인식 현황**")
+        oc2_order_qty = df_order[df_order['MECODE'] == 'ME90621OC2']['수량'].sum()
+        oc2_inv_raw_qty = df_inv[df_inv['상품'] == 'ME90621OC2']['환산'].sum()
+        oc2_inv_valid_qty = df_inv_valid[df_inv_valid['상품'] == 'ME90621OC2']['환산'].sum()
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("발주서 요구 수량", f"{oc2_order_qty}개")
+        col2.metric("엑셀 원본 총 재고", f"{oc2_inv_raw_qty}개")
+        col3.metric("필터링 통과된 실재고", f"{oc2_inv_valid_qty}개")
+        
+        if oc2_inv_valid_qty == 0 and oc2_inv_raw_qty > 0:
+            st.error("🚨 원본에는 재고가 있는데 유효기간 필터링 등에서 걸려 0개로 지워졌습니다. 좌측 체크박스를 끄고 다시 돌려주세요!")
+        elif oc2_inv_raw_qty == 0:
+            st.error("🚨 컴퓨터가 재고 엑셀에서 OC2 상품 자체를 읽어오지 못했습니다. 파일 문제일 확률이 높습니다.")
+        else:
+            st.success("✅ 정상적으로 재고를 파악했습니다. 할당이 성공할 것입니다!")
+        st.markdown("---")
 
         df_inv_valid['화주LOT'] = df_inv_valid['화주LOT'].astype(str)
         if not df_inv_valid.empty:
@@ -165,7 +169,6 @@ if uploaded_file:
                     df_order.at[i, '부족시_LOT'] = lot_str
                     df_order.at[i, '부족시_유효일자'] = date_str
 
-        st.success("✅ 처리가 완료되었습니다!")
         st.subheader("📊 작업 결과 미리보기 (상위 100건)")
         view_cols = ['MECODE', '상품명', '수량', 'LOT', '유효일자', '할당상태']
         existing_view_cols = [c for c in view_cols if c in df_order.columns]
