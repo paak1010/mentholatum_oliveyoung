@@ -16,20 +16,9 @@ st.set_page_config(
 # ==========================================
 custom_css = """
 <style>
-/* 우측 상단 기본 햄버거 메뉴 및 Deploy 헤더 숨기기 */
-[data-testid="stHeader"] {
-    visibility: hidden;
-}
-
-/* 하단 Streamlit 워터마크 숨기기 */
-footer {
-    visibility: hidden;
-}
-
-/* 사이드바 배경색을 완전히 흰색(#FFFFFF)으로 변경 */
-[data-testid="stSidebar"] {
-    background-color: #FFFFFF !important;
-}
+[data-testid="stHeader"] { visibility: hidden; }
+footer { visibility: hidden; }
+[data-testid="stSidebar"] { background-color: #FFFFFF !important; }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
@@ -43,8 +32,10 @@ with st.sidebar:
     st.header("⚙️ 작업 설정")
     uploaded_file = st.file_uploader("올리브영 발주 엑셀 업로드", type=['xlsx'])
     st.markdown("---")
+    
+    apply_shelf_life = st.checkbox("✔️ 잔여 유효일자 548일 이하 제외 적용", value=True)
+    
     st.caption("💡 자동 부분 할당 및 재고 차감 적용")
-    st.caption("✔️ 잔여 유효일자 548일 이하 제외")
     st.caption("Developed by Jay")
 
 # ==========================================
@@ -54,22 +45,19 @@ st.title("올리브영 수주업로드 자동 입력 시스템")
 st.markdown("Mentholatum : Moving The Heart")
 
 def to_safe_float(series):
-    """어떤 타입이 들어와도 숫자만 추출하여 float로 변환"""
+    # 숫자와 소수점만 남기고 강제 변환
     cleaned = series.astype(str).str.replace(r'[^0-9.]', '', regex=True)
     return pd.to_numeric(cleaned, errors='coerce').fillna(0)
 
 if uploaded_file:
     try:
-        # 데이터 읽기
         df_order_raw = pd.read_excel(uploaded_file, sheet_name='서식(수주업로드)', header=1)
         df_inv_raw = pd.read_excel(uploaded_file, sheet_name='재고', header=2)
         
         df_order = df_order_raw.copy()
         df_inv = df_inv_raw.copy()
 
-        # ==========================================
-        # 🛡️ [재고 시트] 열 순서 및 이름 변경 방어 코드 (Robust 매칭)
-        # ==========================================
+        # [재고 시트] 열 이름 변경
         rename_dict = {}
         for col in df_inv.columns:
             col_str = str(col).replace(" ", "").upper()
@@ -83,32 +71,32 @@ if uploaded_file:
                 rename_dict[col] = '환산'
         
         df_inv.rename(columns=rename_dict, inplace=True)
-        # ==========================================
 
-        # 불필요한 열 제거
         if '잔여일수' in df_order.columns:
             start_idx = list(df_order.columns).index('잔여일수')
             cols_to_drop = df_order.columns[start_idx:]
             df_order = df_order.drop(columns=cols_to_drop)
 
-        # 결과 컬럼 초기화 (범용 타입 지정)
         new_cols = ['LOT', '유효일자', '할당상태', '부족시_최대가능수량', '부족시_LOT', '부족시_유효일자']
         for col in new_cols:
             df_order[col] = ""
             df_order[col] = df_order[col].astype(object)
 
-        # 데이터 정제 (매핑된 컬럼명을 안전하게 호출)
-        df_order['MECODE'] = df_order['MECODE'].astype(str).str.strip().str.upper()
-        df_inv['상품'] = df_inv['상품'].astype(str).str.strip().str.upper()
+        # ==========================================
+        # 🔥 [핵심 방어 코드] 숨겨진 공백, 특수문자, 줄바꿈 완전 제거
+        # 영어 알파벳과 숫자만 100% 깔끔하게 남깁니다.
+        # ==========================================
+        df_order['MECODE'] = df_order['MECODE'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
+        df_inv['상품'] = df_inv['상품'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper()
+        
         df_order['수량'] = to_safe_float(df_order['수량']).astype(float)
         df_inv['환산'] = to_safe_float(df_inv['환산']).astype(float)
         
-        # 유효일자 처리 (시간 제거)
         df_inv['유효일자_DT'] = pd.to_datetime(df_inv['유효일자'], errors='coerce')
         df_inv['유효일자_보존'] = df_inv['유효일자_DT'].fillna(pd.Timestamp('2099-12-31'))
         df_inv['유효일자_STR'] = df_inv['유효일자_DT'].dt.strftime('%Y-%m-%d').fillna('')
 
-        # [박스 입수량 계산] 열 이름에 'BOX'나 '입수량'이 들어간 아무 열이나 동적으로 찾음
+        # [박스 입수량 계산]
         box_col_candidates = [col for col in df_inv.columns if 'BOX' in str(col).upper() or '입수량' in str(col)]
         box_col_name = box_col_candidates[0] if box_col_candidates else None
         product_box_unit = {}
@@ -119,17 +107,14 @@ if uploaded_file:
                 if not box_vals.empty:
                     product_box_unit[mecode] = int(box_vals.min())
 
-        # ==========================================
-        # 🔥 [정확한 일수 적용] 재고 필터링 조건 강화
-        # ==========================================
-        today = pd.Timestamp.today().normalize()
-        cutoff_date = today + pd.Timedelta(days=548)
-        
-        # 🚨 수정된 부분: idx_oc2 관련 로직 제거
-        idx_short_shelf_life = (df_inv['유효일자_보존'] <= cutoff_date)
-        df_inv_valid = df_inv[~idx_short_shelf_life].copy()
+        if apply_shelf_life:
+            today = pd.Timestamp.today().normalize()
+            cutoff_date = today + pd.Timedelta(days=548)
+            idx_short_shelf_life = (df_inv['유효일자_보존'] <= cutoff_date)
+            df_inv_valid = df_inv[~idx_short_shelf_life].copy()
+        else:
+            df_inv_valid = df_inv.copy()
 
-        # [재고 그룹핑]
         df_inv_valid['화주LOT'] = df_inv_valid['화주LOT'].astype(str)
         if not df_inv_valid.empty:
             inv_grouped = df_inv_valid.groupby(['상품', '유효일자_보존']).agg({
@@ -140,7 +125,6 @@ if uploaded_file:
         else:
             inv_grouped = pd.DataFrame(columns=['상품', '유효일자_보존', '환산', '화주LOT', '유효일자_STR'])
 
-        # 🚀 할당 로직
         with st.spinner('재고 매칭 중...'):
             for i, row in df_order.iterrows():
                 mecode = str(row['MECODE'])
@@ -181,26 +165,16 @@ if uploaded_file:
                     df_order.at[i, '부족시_LOT'] = lot_str
                     df_order.at[i, '부족시_유효일자'] = date_str
 
-        # ==========================================
-        # 📊 화면 표시용 미리보기
-        # ==========================================
         st.success("✅ 처리가 완료되었습니다!")
-        
         st.subheader("📊 작업 결과 미리보기 (상위 100건)")
         view_cols = ['MECODE', '상품명', '수량', 'LOT', '유효일자', '할당상태']
         existing_view_cols = [c for c in view_cols if c in df_order.columns]
         
         df_display = df_order[existing_view_cols].head(100).copy()
-        df_safe_display = pd.DataFrame(
-            df_display.to_numpy().astype(str), 
-            columns=df_display.columns
-        )
+        df_safe_display = pd.DataFrame(df_display.to_numpy().astype(str), columns=df_display.columns)
         
         st.dataframe(df_safe_display, use_container_width=True, hide_index=True)
 
-        # ==========================================
-        # 💾 엑셀 다운로드
-        # ==========================================
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
             df_order.to_excel(writer, index=False, sheet_name='서식(수주업로드)')
