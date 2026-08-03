@@ -101,7 +101,7 @@ if uploaded_file:
         # ==========================================
         # 🕵️ 실시간 디버깅 안내판 (화면에 띄워줌)
         # ==========================================
-        st.warning("🕵️ **[시스템 체크] ME90621OC2 데이터 인식 현황**")
+        st.warning("**[시스템 체크] 데이터 인식 현황**")
         oc2_order_qty = df_order[df_order['MECODE'] == 'ME90621OC2']['수량'].sum()
         oc2_inv_raw_qty = df_inv[df_inv['상품'] == 'ME90621OC2']['환산'].sum()
         oc2_inv_valid_qty = df_inv_valid[df_inv_valid['상품'] == 'ME90621OC2']['환산'].sum()
